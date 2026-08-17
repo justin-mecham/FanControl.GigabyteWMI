@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>FanControl.GigabyteWMI</AssemblyName>
+    <RootNamespace>FanControl.GigabyteWMI</RootNamespace>
+    <Version>1.0.0</Version>
+    <Authors>Justin</Authors>
+    <Description>Gigabyte Laptop ACPI WMI Fan Control Plugin for FanControl</Description>
+    <RepositoryUrl>https://github.com/justin-mecham/FanControl.GigabyteWMI</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="FanControl.Plugins">
+      <HintPath>lib\FanControl.Plugins.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System.Management" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,46 @@
+name: Build & Package Plugin
+
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore FanControl.GigabyteWMI.csproj
+
+    - name: Build project
+      run: dotnet build FanControl.GigabyteWMI.csproj --configuration Release --no-restore
+
+    - name: Create Release Zip Package
+      run: |
+        Compress-Archive -Path "bin\Release\net48\FanControl.GigabyteWMI.dll" -DestinationPath "FanControl.GigabyteWMI.zip"
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: FanControl.GigabyteWMI
+        path: FanControl.GigabyteWMI.zip
+
+    - name: Release Asset
+      uses: softprops/action-gh-release@v2
+      if: startsWith(github.ref, 'refs/tags/')
+      with:
+        files: FanControl.GigabyteWMI.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

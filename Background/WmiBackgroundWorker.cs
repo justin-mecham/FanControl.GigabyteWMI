@@ -131,10 +131,16 @@ namespace FanControl.GigabyteWMI.Background
 
             uint lastCt = _latestTelemetry.CpuTemp;
             uint lastGt = _latestTelemetry.GpuTemp;
+            uint lastR1 = _latestTelemetry.CpuRpm;
+            uint lastR2 = _latestTelemetry.GpuRpm;
 
+            // In MaxTurbo, Overdrive cycles ADJF every few seconds and the tach briefly
+            // reads 0 around transitions; hold the last good reading there. In other modes
+            // a zero is trusted (EC auto may legitimately park the fans at cool idle).
+            bool maskZeroRpm = _stateMachine.CurrentMode == FanMode.MaxTurbo;
             _latestTelemetry = new TelemetrySnapshot(
-                r1,
-                r2,
+                (r1 == 0 && maskZeroRpm) ? lastR1 : r1,
+                (r2 == 0 && maskZeroRpm) ? lastR2 : r2,
                 ct > 0 ? ct : lastCt,
                 gt > 0 ? gt : lastGt,
                 now

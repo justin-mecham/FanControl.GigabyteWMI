@@ -31,16 +31,25 @@ namespace FanControl.GigabyteWMI.StateMachine
         private const byte WhisperEnterBelow = 10;
         private const byte WhisperExitAt = 15;
 
+        // Overdrive kick-cycling cadence (see class doc). 750ms droop / 2500ms boost
+        // provides balanced fast recovery with sustained 7k+ RPM.
+        private const int OverdriveDropMs = 750;
+        private const int OverdriveBoostMs = 2500;
+
         private readonly IGigabyteWmiDriver _driver;
+        private readonly Func<DateTime> _clock;
         private bool _autoApplied;
+        private bool _overdriveBoostPhase = true;
+        private DateTime _overdrivePhaseStart = DateTime.MinValue;
 
         public FanMode CurrentMode { get; private set; } = FanMode.Auto;
         public byte AppliedCpuDuty { get; private set; } = FanTarget.Unset;
         public byte AppliedGpuDuty { get; private set; } = FanTarget.Unset;
 
-        public FanStateMachine(IGigabyteWmiDriver driver)
+        public FanStateMachine(IGigabyteWmiDriver driver, Func<DateTime>? clock = null)
         {
             _driver = driver;
+            _clock = clock ?? (() => DateTime.UtcNow);
         }
 
         public void ResetToAuto()
@@ -74,6 +83,10 @@ namespace FanControl.GigabyteWMI.StateMachine
                     case FanMode.StepCurve:  EnterStepCurve();  break;
                     case FanMode.WhisperEco: EnterWhisperEco(); break;
                 }
+            }
+            else if (CurrentMode == FanMode.MaxTurbo)
+            {
+                OverdriveTick();
             }
 
             // Track requested duties and keep writing the speed registers on the boost tier
@@ -120,7 +133,8 @@ namespace FanControl.GigabyteWMI.StateMachine
             switch (CurrentMode)
             {
                 case FanMode.MaxTurbo:
-                    WriteTurboSequence();
+                    // Overdrive re-writes its mode bits every <=3s from OverdriveTick;
+                    // re-asserting the full sequence here would cut a droop phase short.
                     break;
                 case FanMode.FixedBoost:
                     WriteFixedBoostSequence();
@@ -240,7 +254,9 @@ namespace FanControl.GigabyteWMI.StateMachine
             CurrentMode = FanMode.MaxTurbo;
             AppliedCpuDuty = 100;
             AppliedGpuDuty = 100;
-            _driver.Log("State Transition -> 100% MAX Turbo (TPP Active, ~7500 RPM).");
+            _overdriveBoostPhase = true;
+            _overdrivePhaseStart = _clock();
+            _driver.Log("State Transition -> MAX Turbo + Overdrive kick-cycling (~7200 RPM avg).");
         }
 
         private void WriteTurboSequence()
@@ -253,6 +269,34 @@ namespace FanControl.GigabyteWMI.StateMachine
             _driver.SetMethod("SetFixedFanStatus", 1);
             _driver.SetMethod("SetTppStatus", 1);
             _driver.SetMethod("SetTurboMode", 1);
+        }
+
+        /// <summary>
+        /// Overdrive: rides the EC's spin-up kick to beat the 84% firmware clamp.
+        /// Droop phase drops ADJF (SetFixedFanStatus=0) so the EC falls back to the step
+        /// curve for ~1s (fans barely slow); boost phase re-asserts ADJF, which re-fires
+        /// the EC's 100%-duty kick (~7500 RPM) for ~3s. Net: ~7.2k RPM average, floor 6521.
+        /// Step=1/Auto=0 are re-asserted each boost so hibernate-resume self-heals within a cycle.
+        /// </summary>
+        private void OverdriveTick()
+        {
+            DateTime now = _clock();
+            double inPhaseMs = (now - _overdrivePhaseStart).TotalMilliseconds;
+
+            if (_overdriveBoostPhase && inPhaseMs >= OverdriveBoostMs)
+            {
+                _driver.SetMethod("SetFixedFanStatus", 0);
+                _overdriveBoostPhase = false;
+                _overdrivePhaseStart = now;
+            }
+            else if (!_overdriveBoostPhase && inPhaseMs >= OverdriveDropMs)
+            {
+                _driver.SetMethod("SetStepFanStatus", 1);
+                _driver.SetMethod("SetAutoFanStatus", 0);
+                _driver.SetMethod("SetFixedFanStatus", 1);
+                _overdriveBoostPhase = true;
+                _overdrivePhaseStart = now;
+            }
         }
     }
 }

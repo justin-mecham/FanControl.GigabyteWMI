@@ -216,12 +216,12 @@ namespace FanControl.GigabyteWMI.Tests
             mockDriver.SetMethodHistory.Should().Contain(x => x.Method == "SetFixedFanSpeed" && x.Value == 206);
             mockDriver.SetMethodHistory.Should().Contain(x => x.Method == "SetGPUFanDuty" && x.Value == 85);
 
-            // MaxTurbo: full turbo latch re-pulse
+            // MaxTurbo: heartbeat stays silent - Overdrive's kick cycle re-writes the
+            // mode bits every <=3s itself, and a heartbeat rewrite would cut a droop short.
             sm.ProcessTarget(new FanTarget(100, 100));
             mockDriver.SetMethodHistory.Clear();
             sm.Heartbeat();
-            mockDriver.SetMethodHistory.Should().Contain(x => x.Method == "SetTppStatus" && x.Value == 1);
-            mockDriver.SetMethodHistory.Should().Contain(x => x.Method == "SetTurboMode" && x.Value == 1);
+            mockDriver.SetMethodHistory.Should().BeEmpty();
 
             // Whisper
             sm.ProcessTarget(new FanTarget(5, 5));
@@ -315,6 +315,65 @@ namespace FanControl.GigabyteWMI.Tests
             mockDriver.SetMethodHistory.Should().NotContain(x => x.Method == "SetFanAdjustStatus");
             mockDriver.SetMethodHistory.Should().NotContain(x => x.Method == "SetFanSpeed");
             mockDriver.SetMethodHistory.Should().NotContain(x => x.Method == "SetFanIndexValue");
+        }
+    
+        [Fact]
+        public void Overdrive_ShouldDropAdjfAfterBoostPhase()
+        {
+            var mockDriver = new MockGigabyteWmiDriver();
+            var now = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            var sm = new FanStateMachine(mockDriver, () => now);
+
+            sm.ProcessTarget(new FanTarget(100, 100));
+            sm.CurrentMode.Should().Be(FanMode.MaxTurbo);
+            mockDriver.LastSetMethods["SetFixedFanStatus"].Should().Be(1);
+
+            // Within the 2.5s boost phase: no droop yet.
+            now = now.AddMilliseconds(2400);
+            sm.ProcessTarget(new FanTarget(100, 100));
+            mockDriver.LastSetMethods["SetFixedFanStatus"].Should().Be(1);
+
+            // Past the boost phase: ADJF drops (fans droop on the step curve).
+            now = now.AddMilliseconds(200);
+            sm.ProcessTarget(new FanTarget(100, 100));
+            mockDriver.LastSetMethods["SetFixedFanStatus"].Should().Be(0);
+            sm.CurrentMode.Should().Be(FanMode.MaxTurbo);
+        }
+
+        [Fact]
+        public void Overdrive_ShouldRefireKickAfterDropPhase()
+        {
+            var mockDriver = new MockGigabyteWmiDriver();
+            var now = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            var sm = new FanStateMachine(mockDriver, () => now);
+
+            sm.ProcessTarget(new FanTarget(100, 100));
+            now = now.AddMilliseconds(2600);
+            sm.ProcessTarget(new FanTarget(100, 100)); // enters droop
+            mockDriver.LastSetMethods["SetFixedFanStatus"].Should().Be(0);
+
+            // 750ms droop elapses: boost re-asserts ADJF (and Step/Auto invariants).
+            now = now.AddMilliseconds(800);
+            sm.ProcessTarget(new FanTarget(100, 100));
+            mockDriver.LastSetMethods["SetFixedFanStatus"].Should().Be(1);
+            mockDriver.LastSetMethods["SetStepFanStatus"].Should().Be(1);
+            mockDriver.LastSetMethods["SetAutoFanStatus"].Should().Be(0);
+        }
+
+        [Fact]
+        public void Overdrive_LeavingMaxTurbo_ShouldStopCycling()
+        {
+            var mockDriver = new MockGigabyteWmiDriver();
+            var now = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            var sm = new FanStateMachine(mockDriver, () => now);
+
+            sm.ProcessTarget(new FanTarget(100, 100));
+            now = now.AddMilliseconds(2600);
+            sm.ProcessTarget(new FanTarget(100, 100)); // droop phase, ADJF=0
+            sm.ProcessTarget(new FanTarget(85, 85));   // exit turbo -> FixedBoost
+
+            sm.CurrentMode.Should().Be(FanMode.FixedBoost);
+            mockDriver.LastSetMethods["SetFixedFanStatus"].Should().Be(1);
         }
     }
 }

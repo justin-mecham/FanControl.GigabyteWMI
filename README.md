@@ -102,7 +102,8 @@ The plugin interfaces directly with Gigabyte's ACPI WMI namespace (`root\WMI` ->
 
 - **16-Step Hardware Duty Table**: Maps 0%-100% duty cycles to Gigabyte's hardware register values extracted from `ComData.dll`:
   `[57, 68, 80, 91, 103, 114, 125, 137, 148, 160, 171, 183, 194, 206, 217, 229]`
-- **Mode Switching**: Toggles hardware `SetFixedFanStatus`, `SetStepFanStatus`, `SetAutoFanStatus`, `SetGPUFanDuty`, and `SetWhisperMode` appropriate for requested fan curve targets.
+- **Mode Switching**: Replicates GCC's own `ucNotebook` call sequences. Manual fixed control requires **both** `SetFixedFanStatus=1` and `SetStepFanStatus=1` — with step status cleared the EC silently ignores `SetFixedFanSpeed`. Turbo (`SetTppStatus`) and Whisper (`SetWhisperMode`) tiers engage at the extremes of the curve.
+- **Hysteresis Bands**: Turbo engages at ≥98% and releases below 93%; Whisper engages below 10% and releases at ≥15%. This prevents mode thrash while FanControl's response-time smoothing walks the commanded value through a tier boundary.
 
 ---
 

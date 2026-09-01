@@ -33,7 +33,7 @@ namespace FanControl.GigabyteWMI.Sensors
         public void Reset()
         {
             Value = null;
-            _worker.RequestResetToAuto();
+            _worker.RequestResetToAuto(_isGpu);
         }
     }
 }

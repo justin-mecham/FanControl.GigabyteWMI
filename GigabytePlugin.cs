@@ -1,6 +1,7 @@
 using System;
 using FanControl.Plugins;
 using FanControl.GigabyteWMI.Hardware;
+using FanControl.GigabyteWMI.StateMachine;
 using FanControl.GigabyteWMI.Background;
 using FanControl.GigabyteWMI.Sensors;
 
@@ -11,7 +12,8 @@ namespace FanControl.GigabyteWMI
         private readonly IPluginLogger? _logger;
         private readonly IPluginDialog? _dialog;
 
-        private readonly IGigabyteWmiService _wmiService;
+        private readonly IGigabyteWmiDriver _driver;
+        private readonly IFanStateMachine _stateMachine;
         private readonly WmiBackgroundWorker _worker;
 
         private GigabyteControlSensor? _cpuControl;
@@ -25,40 +27,43 @@ namespace FanControl.GigabyteWMI
 
         public GigabytePlugin()
         {
-            _wmiService = new GigabyteWmiService();
-            _worker = new WmiBackgroundWorker(_wmiService);
+            _driver = new GigabyteWmiDriver();
+            _stateMachine = new FanStateMachine(_driver);
+            _worker = new WmiBackgroundWorker(_driver, _stateMachine);
             _worker.Start();
-            _wmiService.Log("GigabytePlugin initialized (default ctor).");
+            _driver.Log("GigabytePlugin initialized (default ctor).");
         }
 
         public GigabytePlugin(IPluginLogger logger, IPluginDialog dialog)
         {
             _logger = logger;
             _dialog = dialog;
-            _wmiService = new GigabyteWmiService();
-            _worker = new WmiBackgroundWorker(_wmiService);
+            _driver = new GigabyteWmiDriver();
+            _stateMachine = new FanStateMachine(_driver);
+            _worker = new WmiBackgroundWorker(_driver, _stateMachine);
             _worker.Start();
-            _wmiService.Log("GigabytePlugin initialized (injected ctor).");
+            _driver.Log("GigabytePlugin initialized (injected ctor).");
         }
 
         /// <summary>
         /// Testing constructor for full hardware mocking and TDD verification.
         /// </summary>
-        public GigabytePlugin(IGigabyteWmiService wmiService, WmiBackgroundWorker worker)
+        public GigabytePlugin(IGigabyteWmiDriver driver, IFanStateMachine stateMachine, WmiBackgroundWorker worker)
         {
-            _wmiService = wmiService;
+            _driver = driver;
+            _stateMachine = stateMachine;
             _worker = worker;
         }
 
         public void Initialize()
         {
-            _wmiService.Log("Initialize called.");
-            _wmiService.EnsureConnected();
+            _driver.Log("Initialize called.");
+            _driver.EnsureConnected();
         }
 
         public void Load(IPluginSensorsContainer container)
         {
-            _wmiService.Log("Load called - registering sensor and control cards.");
+            _driver.Log("Load called - registering sensor and control cards.");
 
             // 1. Fan Speed Controls (CPU & GPU)
             _cpuControl = new GigabyteControlSensor("gb_cpu_fan_ctrl", "Gigabyte CPU Fan Control", _worker, isGpu: false);
@@ -97,9 +102,9 @@ namespace FanControl.GigabyteWMI
 
         public void Close()
         {
-            _wmiService.Log("Close called - stopping worker and restoring EC Auto control.");
+            _driver.Log("Close called - stopping worker and restoring EC Auto control.");
             _worker.Stop();
-            _wmiService.RestoreAutoMode();
+            _stateMachine.ResetToAuto();
         }
     }
 }

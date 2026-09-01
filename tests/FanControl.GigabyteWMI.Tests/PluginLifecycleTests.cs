@@ -4,7 +4,9 @@ using System.Diagnostics;
 using Xunit;
 using FluentAssertions;
 using FanControl.Plugins;
+using FanControl.GigabyteWMI.Core;
 using FanControl.GigabyteWMI.Background;
+using FanControl.GigabyteWMI.StateMachine;
 using FanControl.GigabyteWMI.Tests.Mocks;
 
 namespace FanControl.GigabyteWMI.Tests
@@ -21,9 +23,10 @@ namespace FanControl.GigabyteWMI.Tests
         [Fact]
         public void PluginLoad_ShouldRegisterAllCards()
         {
-            var mockWmi = new MockGigabyteWmiService();
-            var worker = new WmiBackgroundWorker(mockWmi);
-            var plugin = new GigabytePlugin(mockWmi, worker);
+            var mockDriver = new MockGigabyteWmiDriver();
+            var stateMachine = new FanStateMachine(mockDriver);
+            var worker = new WmiBackgroundWorker(mockDriver, stateMachine);
+            var plugin = new GigabytePlugin(mockDriver, stateMachine, worker);
             var container = new TestSensorsContainer();
 
             plugin.Initialize();
@@ -37,18 +40,19 @@ namespace FanControl.GigabyteWMI.Tests
         [Fact]
         public void PluginUpdate_MustBeSubMillisecondNonBlocking()
         {
-            var mockWmi = new MockGigabyteWmiService();
-            var worker = new WmiBackgroundWorker(mockWmi);
-            var plugin = new GigabytePlugin(mockWmi, worker);
+            var mockDriver = new MockGigabyteWmiDriver();
+            mockDriver.GetMethodReturns["getRpm1"] = 3200;
+            mockDriver.GetMethodReturns["getRpm2"] = 3400;
+            mockDriver.GetMethodReturns["getCpuTemp"] = 55;
+            mockDriver.GetMethodReturns["getGpuTemp1"] = 50;
+
+            var stateMachine = new FanStateMachine(mockDriver);
+            var worker = new WmiBackgroundWorker(mockDriver, stateMachine);
+            var plugin = new GigabytePlugin(mockDriver, stateMachine, worker);
             var container = new TestSensorsContainer();
 
             plugin.Load(container);
-
-            // Populate worker telemetry
-            worker.LatestCpuRpm = 3200;
-            worker.LatestGpuRpm = 3400;
-            worker.LatestCpuTemp = 55;
-            worker.LatestGpuTemp = 50;
+            worker.ProcessSingleTick();
 
             var sw = Stopwatch.StartNew();
             for (int i = 0; i < 1000; i++)
@@ -69,13 +73,17 @@ namespace FanControl.GigabyteWMI.Tests
         [Fact]
         public void PluginClose_ShouldStopWorkerAndRestoreAuto()
         {
-            var mockWmi = new MockGigabyteWmiService();
-            var worker = new WmiBackgroundWorker(mockWmi);
-            var plugin = new GigabytePlugin(mockWmi, worker);
+            var mockDriver = new MockGigabyteWmiDriver();
+            var stateMachine = new FanStateMachine(mockDriver);
+            var worker = new WmiBackgroundWorker(mockDriver, stateMachine);
+            var plugin = new GigabytePlugin(mockDriver, stateMachine, worker);
 
             plugin.Close();
 
-            mockWmi.IsAutoModeRestored.Should().BeTrue();
+            mockDriver.LastSetMethods["SetAutoFanStatus"].Should().Be(1);
+            mockDriver.LastSetMethods["SetFixedFanStatus"].Should().Be(0);
+            mockDriver.LastSetMethods["SetStepFanStatus"].Should().Be(0);
+            mockDriver.LastSetMethods["SetWhisperMode"].Should().Be(0);
         }
     }
 }

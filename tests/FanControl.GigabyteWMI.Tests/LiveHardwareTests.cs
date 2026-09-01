@@ -15,16 +15,16 @@ namespace FanControl.GigabyteWMI.Tests
         [Trait("Category", "Integration")]
         public void LiveHardware_EnsureConnected_ShouldConnectToRealWmi()
         {
-            var service = new GigabyteWmiService();
-            bool connected = service.EnsureConnected();
+            var driver = new GigabyteWmiDriver();
+            bool connected = driver.EnsureConnected();
 
             // When executed on physical hardware, EnsureConnected establishes WMI scope
             if (connected)
             {
-                uint cpuTemp = service.GetCpuTemp();
-                uint cpuRpm = service.GetCpuRpm();
-                uint gpuRpm = service.GetGpuRpm();
-                uint gpuTemp = service.GetGpuTemp();
+                uint cpuTemp = driver.GetMethod("getCpuTemp");
+                uint cpuRpm = driver.GetMethod("getRpm1");
+                uint gpuRpm = driver.GetMethod("getRpm2");
+                uint gpuTemp = driver.GetMethod("getGpuTemp1");
 
                 // If running in elevated Admin context with active ACPI telemetry:
                 if (cpuTemp > 0)
